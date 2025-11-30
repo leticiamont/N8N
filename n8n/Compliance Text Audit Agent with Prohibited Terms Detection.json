@@ -1,0 +1,277 @@
+{
+  "name": "Compliance Text Audit Agent with Prohibited Terms Detection",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "compliance-audit",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryPropertyName": "files"
+        }
+      },
+      "id": "ff227c83-4ff3-420d-8a29-4a776c5561ff",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2832,
+        352
+      ],
+      "webhookId": "07a19f9f-9faa-49f8-894a-21fe956b4f56"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "slackChannel",
+              "value": "#compliance-alerts",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "02bc2310-8e2f-4c9a-9f13-d4e5f29b9321",
+      "name": "Workflow Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2416,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prohibitedTerms = [\n  'porra',            \n  'se vira',            \n  'caralho',      \n  'bosta',        \n  'burro',         \n  'deu ruim',           \n  'cuzao',           \n  'fudeu',            \n  'fudendo',\n  'idiota',         \n  'otário',         \n  'merda',          \n  'puta que pariu', \n  'que se dane',    \n];\n\nconst inputItem = $input.first();\nlet documentText = inputItem.json.text || ''; \nlet foundTerms = []; // Variável movida para o topo para garantir o escopo\n\n// ------------------------------------------\n// 1. TRATAMENTO DE ERRO E EXTRAÇÃO DE BINÁRIO\n// ------------------------------------------\n\n// Verifica se o texto está vazio E se existe um arquivo binário\nif (!documentText && inputItem.binary && Object.keys(inputItem.binary).length > 0) {\n  try {\n    const binaryKey = Object.keys(inputItem.binary)[0];\n    // Tenta decodificar o binário diretamente (funciona para TXT, CSV, JSON)\n    documentText = Buffer.from(inputItem.binary[binaryKey].data, 'base64').toString('utf8');\n  } catch (e) {\n    // Falha crítica na decodificação (Geralmente PDF/DOCX sem nó extrator dedicado)\n    return [{\n      json: {\n        compliance_status: \"EXTRACTION_ERROR\",\n        risk_score: 100, \n        violations_count: 0,\n        details: \"FALHA CRÍTICA: O arquivo foi recebido, mas não pôde ser lido (Provavelmente PDF ou DOCX). Por favor, envie um arquivo .TXT.\"\n      }\n    }];\n  }\n}\n\n// Verifica se AINDA está vazio após a tentativa de extração\nif (!documentText && inputItem.binary && Object.keys(inputItem.binary).length > 0) {\n    // Retorna o erro se não conseguiu extrair (e não usou o nó extrator)\n    return [{\n      json: {\n        compliance_status: \"EXTRACTION_ERROR\",\n        risk_score: 100, \n        violations_count: 0,\n        details: \"FALHA CRÍTICA: O arquivo foi recebido, mas não pôde ser lido (Provavelmente PDF ou DOCX). Por favor, use um nó de extração de documentos dedicado ou envie um arquivo .TXT para continuar.\"\n      }\n    }];\n}\n\n\n// ------------------------------------------\n// 2. LÓGICA DE AUDITORIA (Se houver texto)\n// ------------------------------------------\n\nconst lowerText = documentText.toLowerCase();\n// A declaração 'let foundTerms = [];' foi removida daqui\n\nif (documentText) {\n    prohibitedTerms.forEach(term => {\n      if (lowerText.includes(term)) {\n        foundTerms.push(term);\n      }\n    });\n}\n\n// Cálculo do Risco\nconst violationsCount = foundTerms.length;\nconst riskScore = violationsCount * 10; \nconst status = violationsCount > 0 ? \"FAIL\" : \"PASS\";\n\n// ------------------------------------------\n// 3. SAÍDA FINAL\n// ------------------------------------------\n\nreturn [{\n  json: {\n    ...inputItem.json, \n    text: documentText, \n    prohibited_terms_found: foundTerms,\n    violations_count: violationsCount,\n    risk_score: Math.min(riskScore, 100), \n    compliance_status: status,\n    details: status === \"PASS\" && documentText.length > 0 \n      ? \"Nenhum termo proibido encontrado pela lista de verificação automática. (Aguardando análise da IA)\"\n      : (status === \"FAIL\" \n          ? `Termos proibidos detectados automaticamente: ${foundTerms.join(', ')}`\n          : \"Nenhum dado de texto fornecido para análise. (Sem violações óbvias)\"\n        )\n  }\n}];"
+      },
+      "id": "d6305061-64f9-456c-9ecf-e4d81ad5f0a1",
+      "name": "Prohibited Terms List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2160,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "d5bcc837-1b33-4ebd-85a5-f5afb39507df",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -2000,
+        544
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "WW1IGQYFFiD5CizE",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=**Instruções de Auditoria:**\n1. ANALISE o 'Texto do Documento' fornecido abaixo.\n2. A lista de termos proibidos detectados automaticamente é: {{ $json.prohibited_terms_found }}.\n3. Sua tarefa é analisar o contexto da violação (se houver) e reavaliar o risco.\n4. GERE APENAS UM OBJETO JSON de saída, sem texto introdutório.\n\n**Estrutura do JSON de Saída (OBRIGATÓRIO):**\n{\n  \"compliance_status\": \"O status deve ser PASS, FAIL ou ERROR\",\n  \"violations_count\": \"Número total de violações encontradas no documento.\",\n  \"risk_score\": \"O novo score de risco de 0 a 100, baseado no contexto da violação.\",\n  \"details\": \"Resumo conciso das violações e seu impacto.\",\n  \"recommendations\": \"Ação recomendada para o documento (Ex: 'Revisão Jurídica' ou 'Arquivar').\"\n}\n\n**Texto do Documento para Análise:**\n---\n{{ $json.text }}",
+        "options": {
+          "systemMessage": "=Você é um agente de auditoria de compliance especializado em identificar termos proibidos em textos.\n\nSua tarefa é:\n1. Analisar cuidadosamente o texto fornecido\n2. Verificar se há termos proibidos da lista: {{ $json.prohibitedTerms.join(\", \") }}\n3. Identificar TODAS as ocorrências de termos proibidos (case-insensitive)\n4. Para cada violação encontrada, registre o termo e seu contexto\n5. Calcular uma pontuação de risco de compliance (0–100, onde 0 é conforme e 100 risco crítico)\n6. Fornecer um resumo com:\n   - Total de violações encontradas\n   - Lista dos termos proibidos detectados\n   - Pontuação de risco\n   - Recomendações para correção\n\nRetorne sua análise em formato claro e estruturado, contendo:\n- compliance_status: \"PASS\" ou \"FAIL\"\n- violations_count: número\n- prohibited_terms_found: array de termos\n- risk_score: número (0–100)\n- details: explicação das descobertas\n- recommendations: ações sugeridas"
+        }
+      },
+      "id": "bcf2632e-da53-443c-abe8-11c2648e84bc",
+      "name": "Compliance Audit Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -1936,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0A0259TQBU",
+          "mode": "list",
+          "cachedResultName": "compliance-alerts"
+        },
+        "text": "={{ $json.output }}",
+        "otherOptions": {}
+      },
+      "id": "03b65287-c17b-4f79-9f71-97c04b887a11",
+      "name": "Send to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        -1584,
+        256
+      ],
+      "webhookId": "0d3a2c38-f8ec-44f5-9a1e-164136fd24e2",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "gYNsuDogoOb8zmsA",
+          "name": "Slack account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"status\": \"{{ $json.compliance_status }}\",\n  \"violations_count\": \"{{ $json.violations_count }}\",\n  \"risk_score\": \"{{ $json.risk_score }}\",\n  \"details\": \"{{ $json.details }}\"\n}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "e8023308-4801-4d24-919e-e6895c719334",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1584,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "files0",
+        "destinationKey": "text",
+        "options": {}
+      },
+      "id": "4cda5fc5-5fc2-4a11-b541-5e3ae8eb23a0",
+      "name": "Extract Text from Document",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -2640,
+        352
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $execution.id }}"
+      },
+      "id": "d15c3f10-1509-45ed-98da-cf2a12f52600",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -1840,
+        560
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Text from Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prohibited Terms List": {
+      "main": [
+        [
+          {
+            "node": "Compliance Audit Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Compliance Audit Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compliance Audit Agent": {
+      "main": [
+        [
+          {
+            "node": "Send to Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Configuration": {
+      "main": [
+        [
+          {
+            "node": "Prohibited Terms List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text from Document": {
+      "main": [
+        [
+          {
+            "node": "Workflow Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Compliance Audit Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "dfd6838a-5ece-4c09-a05b-cee8c3b0a918",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b5af1eb3b2ac6b57407066d08e596bef9ab01a4564aec3bbf528f69f55fecdc9"
+  },
+  "id": "wNzx8ONE2hQDa1Cg",
+  "tags": []
+}

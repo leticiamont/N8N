@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+body {
+    font-family: 'Inter', sans-serif;
+}
+.icon-spin {
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+/* Oculta os painéis por padrão até que o JS decida o que mostrar */
+#settings-panel, #result-card {
+    transition: all 0.3s ease-in-out;
+}
+
+.container { width: 90%; max-width: 800px; margin: 0 auto; text-align: center; }
+
+/* Estilo do "Canvas" / Terminal */
+.relatorio-terminal {
+    background-color: #1e1e1e; /* Fundo escuro estilo terminal */
+    color: #00ff41;            /* Texto verde estilo hacker (ou branco #fff) */
+    font-family: 'Consolas', 'Courier New', monospace; /* Fonte de código */
+    padding: 20px;
+    border-radius: 8px;
+    text-align: left;
+
+    /* O SEGREDO ESTÁ AQUI: */
+    white-space: pre-wrap;     /* Mantém a formatação original do texto */
+    font-size: 14px;
+    line-height: 1.5;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    border-left: 10px solid #555; /* Borda padrão */
+}
+
+/* Cores da borda lateral dependendo do status */
+.relatorio-terminal.fail { border-left-color: #ff3333; color: #ffcccc; } /* Vermelho se falhar */
+.relatorio-terminal.pass { border-left-color: #33ff33; color: #ccffcc; } /* Verde se passar */
+
+button {
+    margin-top: 20px;
+    padding: 10px 20px;
+    cursor: pointer;
+}
